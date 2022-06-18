@@ -1,0 +1,16 @@
+# config.txt.sample
+# this is a sample config.txt file
+# rename the file to config.txt and provide your OAuth credentials below
+# 
+# you will need to have created and activated an OAuth Server-to-Server app
+# in your Zoom account to get this information
+# instructions here: https://marketplace.zoom.us/docs/guides/build/server-to-server-oauth-app
+
+# account_id is a 22 character a-Z0-9 string
+Account_ID = aBcDeF0123456789fEdCbA
+
+# client_id is a 22 character a-Z0-9 string
+Client_ID = AaBbCcDdEeFf9876543210
+
+# client_secret is a 32 character a-Z string
+Client_Secret = aBcDeFgHiJkLmNoPqRsTuVwXyZzYxWvU
