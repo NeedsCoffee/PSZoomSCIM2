@@ -1,4 +1,6 @@
 /.vscode/
 /logs/
 /lists/
+/certs/
+/modules/
 config.txt

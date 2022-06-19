@@ -1,28 +1,19 @@
+#Requires -PSEdition Core
 [CmdletBinding()]param()
-Write-Verbose 'Start of script'
+Write-Verbose 'Start of script. Importing modules.'
+'Microsoft.Graph.Authentication','Microsoft.Graph.Users','Microsoft.Graph.Groups','Logging' | `
+    ForEach-Object {Import-Module -FullyQualifiedName ".\modules\$_"}
 function Initialize-Config {
     [CmdletBinding()]param()
     Write-Verbose 'Function: Initialize-Config'
     if(Test-Path '.\config.txt'){
-        Write-Verbose 'Found config file. Loading OAuth app values'
-        [hashtable]$config = Get-Content '.\config.txt' -Raw | ConvertFrom-StringData -Delimiter '='
-        if($config.Keys -contains 'Account_ID'){
-            Write-Verbose "Account_ID = $($config['Account_ID'])"
-            [string]$script:Account_ID = $config['Account_ID']
-            if($config.Keys -contains 'Client_ID'){
-                Write-Verbose "Client_ID = $($config['Client_ID'])"
-                [string]$script:Client_ID = $config['Client_ID']
-                if($config.Keys -contains 'Client_Secret'){
-                    Write-Verbose "Client_Secret = $($config['Client_Secret'])"
-                    [securestring]$script:Client_Secret = $config['Client_Secret'] | ConvertTo-SecureString -Force -AsPlainText
-                } else {
-                    throw 'Unable to load Client_Secret value from config.txt'
-                }
-            } else {
-                throw 'Unable to load Client_ID value from config.txt'
-            }
-        } else {
-            throw 'Unable to load Account_ID value from config.txt'
+        Write-Verbose 'Found config file. Script variables values'
+        [hashtable]$script:config = Get-Content '.\config.txt' -Raw | ConvertFrom-StringData
+        foreach($key in $script:config.Keys){
+            Write-Verbose "$key = $($script:config[$key])"
+        }
+        if($config.Keys -contains 'Client_Secret'){
+            $script:config.Add("Client_Secret_Secure",($config['Client_Secret'] | ConvertTo-SecureString -Force -AsPlainText))
         }
     } else {
         throw 'config.txt not found. Unable to continue'
@@ -35,9 +26,9 @@ function ConvertTo-Base64([string]$text = '') {
 function Get-ZoomAccessToken {
     [CmdletBinding()]
     param (
-        [Parameter(Position=0)][string]$account = $script:Account_ID,
-        [Parameter(Position=1)][string]$client = $script:Client_ID,
-        [Parameter(Position=2)][securestring]$secret = $script:Client_Secret,
+        [Parameter(Position=0)][string]$account = $script:config['Account_ID'],
+        [Parameter(Position=1)][string]$client = $script:config['Client_ID'],
+        [Parameter(Position=2)][securestring]$secret = $script:config['Client_Secret_Secure'],
         [Parameter(Position=3)][switch]$force
     )
     Write-Verbose 'Function: Get-ZoomAccessToken'
@@ -61,7 +52,7 @@ function Get-ZoomAccessToken {
             $script:cached_zatoken | Add-Member -Value ($script:cached_zatoken.access_token | ConvertTo-SecureString -AsPlainText -Force) -MemberType NoteProperty -Name access_token_secure
             return $script:cached_zatoken.access_token_secure
         } catch {
-            Write-Output "Failure trying to get an access token"
+            Write-Output 'Failure trying to get an access token'
             Write-Output $_
         }
     }
@@ -70,6 +61,7 @@ function Get-ZoomUsers {
     [CmdletBinding()]
     param ()
     # discover how many users there are
+    Write-Verbose 'Function: Get-ZoomUsers'
     $query = 'https://api.zoom.us/scim2/Users?count={0}&startIndex={1}'
     $discovery = Invoke-RestMethod -uri ($query -f 1,1) -Method Get -Authentication Bearer -Token (Get-ZoomAccessToken)
     [int]$total = $discovery.totalResults
@@ -82,18 +74,65 @@ function Get-ZoomUsers {
         }
         Write-Host "Collecting users $startIndex - $($startIndex+$pageSize-1)"
         $response = Invoke-RestMethod -uri ($query -f $pageSize,$startIndex) -Method Get -Authentication Bearer -Token (Get-ZoomAccessToken) -MaximumRetryCount 3 -RetryIntervalSec 5
+        # update the total in case some users are added whilst we collect data
+        # not sure what happens if a user is deleted though - maybe 'get' the user before doing anything to them later
+        [int]$total = $response.totalResults
         $data += Invoke-ZoomUserDataParse -data $response.Resources
         $startIndex += $pageSize
-        Start-Sleep -Seconds 1 # rate limiting will kick in if we don't do this
     } until ($startIndex -ge $total)
     return $data
 }
 function Invoke-ZoomUserDataParse {
     [CmdletBinding()]
     param([array]$data)
+    Write-Verbose 'Function: Invoke-ZoomUserDataParse'
     [array]$parsedData = $data | Select-Object id,@{N='uri';E={$_.meta.location}},@{N='givenName';E={$_.name.givenName}},@{N='familyName';E={$_.name.familyName}},@{N='emailAddress';E={($_.emails | ? Primary -eq True).value}},displayName,userName,active,userType
     return $parsedData
 }
+function Compare-ZoomUsersWithAADUsers {
+    [CmdletBinding()]
+    param([array]$ZoomUsers)
 
+    [hashtable]$splat = @{
+        ClientId = $script:config['AAD_Client_ID']
+        CertificateThumbprint = $script:config['AAD_Cert_Thumb']
+        TenantId = $script:config['AAD_Tenant_ID']
+    }
+    $workingSet = @{}
+    [int]$x = 0; [int]$y = $ZoomUsers.count
+    Connect-MgGraph @splat | Out-Null
+    foreach($zoomUser in $ZoomUsers){
+        $x++
+        [array]$aadUser = Get-MgUser -Filter "UserPrincipalName eq '$($zoomUser.UserName)' or ProxyAddresses/any(c:c eq 'smtp:$($zoomUser.emailAddress)')" -Property AccountEnabled,ProxyAddresses,UserPrincipalName
+        [int]$foundCount = $aadUser.count
+        if($foundCount -eq 1){
+            if($zoomUser.active -and -not $aadUser.AccountEnabled){
+                # user is disabled in AD and needs deactivating in Zoom
+                Write-Host "$x of $y $($zoomUser.UserName) : Disabled in AAD, Enabled in Zoom" -ForegroundColor Yellow
+                $workingSet.Add($zoomUser.UserName,1)
+            }elseif(-not $zoomUser.active -and $aadUser.AccountEnabled){
+                # user is enabled in AD and needs reactivating in Zoom
+                Write-Host "$x of $y $($zoomUser.UserName) : Enabled in AAD, Disabled in Zoom" -ForegroundColor Green
+                $workingSet.Add($zoomUser.UserName,0)
+            }
+        }elseif($foundCount -gt 1){
+            Write-Host "$x of $y $($zoomUser.UserName) : more than 1 account found in AAD - skipping" -ForegroundColor Red
+        }else{
+            Write-Host "$x of $y $($zoomUser.UserName) : Not found in AAD, Enabled in Zoom" -ForegroundColor Cyan
+            $workingSet.Add($zoomUser.UserName,2)
+        }
+    }
+    Disconnect-MgGraph | Out-Null
+    return $workingSet
+}
 Initialize-Config
 #Get-ZoomAccessToken
+
+#. get all users
+# compare all those users with their AAD equivalent
+# if no AAD equivalent - deactivate user
+# if AAD equivalent is disabled - deactivate user
+
+[array]$allZoomUsers = Get-ZoomUsers
+[hashtable]$zoomUsersToProcess = Compare-ZoomUsersWithAADUsers -ZoomUsers $allZoomUsers
+

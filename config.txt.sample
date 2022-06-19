@@ -14,3 +14,6 @@ Client_ID = AaBbCcDdEeFf9876543210
 
 # client_secret is a 32 character a-Z string
 Client_Secret = aBcDeFgHiJkLmNoPqRsTuVwXyZzYxWvU
+
+# certificate_thumbprint is the thumbprint of a certificate giving access to azuread
+Certificate_Thumbprint = asdfasdfasdfasdfasdfasdf
