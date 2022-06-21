@@ -135,3 +135,32 @@ Initialize-Config
 
 [array]$allZoomUsers = Get-ZoomUsers
 [hashtable]$zoomUsersToProcess = Compare-ZoomUsersWithAADUsers -ZoomUsers $allZoomUsers
+
+
+function Disable-ZoomUser {
+    [CmdletBinding()]
+    param($user)
+    # contruct a rather stupid packet to send to the scim2 api which disables a user
+    [PSCustomObject]$packet = @{
+        schemas = @('urn:ietf:params:scim:api:messages:2.0:ListResponse');
+        Operations = @(@{'op'='replace';'value'=@{'active'=$false}});
+    }
+    [string]$jsonPacket = $packet | ConvertTo-Json -Depth 3 -Compress
+
+    [PSCustomObject]$splat = @{
+        uri = ('https://api.zoom.us/scim2/Users/{0}' -f $user.Id);
+        method = 'Patch';
+        body = $jsonPacket;
+        authentication = 'Bearer';
+        token = (Get-ZoomAccessToken);
+        maximumretrycount = 3;
+        retryintervalsec = 5;
+    }
+    $response = Invoke-RestMethod @splat -StatusCodeVariable statusCode
+    if($statusCode = 200){
+        Write-Host "Disabled Zoom user $($user.UserName)"
+    } else {
+        Write-Host $response
+        throw "Failed to disable user $($user.UserName). Status code = $statusCode"
+    }
+}
