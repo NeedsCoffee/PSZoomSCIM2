@@ -98,7 +98,7 @@ function Compare-ZoomUsersWithAADUsers {
         CertificateThumbprint = $script:config['AAD_Cert_Thumb']
         TenantId = $script:config['AAD_Tenant_ID']
     }
-    $workingSet = @{}
+    [hashtable]$workingSet = @{}
     [int]$x = 0; [int]$y = $ZoomUsers.count
     Connect-MgGraph @splat | Out-Null
     foreach($zoomUser in $ZoomUsers){
@@ -135,4 +135,3 @@ Initialize-Config
 
 [array]$allZoomUsers = Get-ZoomUsers
 [hashtable]$zoomUsersToProcess = Compare-ZoomUsersWithAADUsers -ZoomUsers $allZoomUsers
-
