@@ -95,7 +95,7 @@ function Compare-ZoomUsersWithAADUsers {
 
     [hashtable]$splat = @{
         ClientId = $script:config['AAD_Client_ID']
-        CertificateThumbprint = $script:config['AAD_Cert_Thumb']
+        Certificate = (Get-ChildItem "Cert:\LocalMachine\My\$($script:config['AAD_Cert_Thumb'])")
         TenantId = $script:config['AAD_Tenant_ID']
     }
     [hashtable]$workingSet = @{}
