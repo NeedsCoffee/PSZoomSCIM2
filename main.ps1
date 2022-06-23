@@ -73,14 +73,25 @@ function Get-ZoomUsers {
             $pageSize = $total - $startIndex
         }
         Write-Host "Collecting users $startIndex - $($startIndex+$pageSize-1)"
-        $response = Invoke-RestMethod -uri ($query -f $pageSize,$startIndex) -Method Get -Authentication Bearer -Token (Get-ZoomAccessToken) -MaximumRetryCount 3 -RetryIntervalSec 5
-        # update the total in case some users are added whilst we collect data
-        # not sure what happens if a user is deleted though - maybe 'get' the user before doing anything to them later
-        [int]$total = $response.totalResults
+        $splat = @{
+            Uri = ($query -f $pageSize,$startIndex)
+            Method = 'Get'
+            Authentication = 'Bearer'
+            Token = (Get-ZoomAccessToken)
+            MaximumRetryCount = 3
+            RetryIntervalSec = 5
+            WarningAction = 'Continue'
+            ErrorAction = 'Continue'
+        }
+        $response = Invoke-RestMethod @splat
         $data += Invoke-ZoomUserDataParse -data $response.Resources
         $startIndex += $pageSize
     } until ($startIndex -ge $total)
-    return $data
+    if ($data.count -lt $total){
+        Throw "Ambiguous user list received from Zoom. Expected $total records, $($data.count) retrieved."
+    } elseif ($data.count -eq 0){
+        Throw "No records returned from Zoom."
+    } else {return $data}
 }
 function Invoke-ZoomUserDataParse {
     [CmdletBinding()]
