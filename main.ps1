@@ -67,14 +67,14 @@ function Get-ZoomUsers {
     [int]$total = $discovery.totalResults
     [array]$data = @()
     [int]$pageSize = 100
-    [int]$startIndex = 1
+    [int]$index = 1
     do {
-        if($startIndex + $pageSize -gt $total){
-            $pageSize = $total - $startIndex
+        if(($index+$pageSize) -gt $total){
+            $pageSize = ($total-$index)+1
         }
-        Write-Host "Collecting users $startIndex - $($startIndex+$pageSize-1)"
+        Write-Host "Collecting users $('{0:00000}' -f $index) - $('{0:00000}' -f ($index+$pageSize-1)) / $('{0:00000}' -f $total)"
         $splat = @{
-            Uri = ($query -f $pageSize,$startIndex)
+            Uri = ($query -f $pageSize,$index)
             Method = 'Get'
             Authentication = 'Bearer'
             Token = (Get-ZoomAccessToken)
@@ -85,8 +85,8 @@ function Get-ZoomUsers {
         }
         $response = Invoke-RestMethod @splat
         $data += Invoke-ZoomUserDataParse -data $response.Resources
-        $startIndex += $pageSize
-    } until ($startIndex -ge $total)
+        $index += $pageSize
+    } until ($index -ge $total)
     if ($data.count -lt $total){
         Throw "Ambiguous user list received from Zoom. Expected $total records, $($data.count) retrieved."
     } elseif ($data.count -eq 0){
@@ -162,7 +162,6 @@ function Disable-ZoomUser {
         Operations = @(@{'op'='replace';'value'=@{'active'=$false}});
     }
     [string]$jsonPacket = $packet | ConvertTo-Json -Depth 3 -Compress
-
     [PSCustomObject]$splat = @{
         uri = ('https://api.zoom.us/scim2/Users/{0}' -f $user.Id);
         method = 'Patch';
@@ -178,5 +177,32 @@ function Disable-ZoomUser {
     } else {
         Write-Host $response
         throw "Failed to disable user $($user.UserName). Status code = $statusCode"
+    }
+}
+
+function Enable-ZoomUser {
+    [CmdletBinding()]
+    param($user)
+    # contruct a rather stupid packet to send to the scim2 api which enables a user
+    [PSCustomObject]$packet = @{
+        schemas = @('urn:ietf:params:scim:api:messages:2.0:ListResponse');
+        Operations = @(@{'op'='replace';'value'=@{'active'=$true}});
+    }
+    [string]$jsonPacket = $packet | ConvertTo-Json -Depth 3 -Compress
+    [PSCustomObject]$splat = @{
+        uri = ('https://api.zoom.us/scim2/Users/{0}' -f $user.Id);
+        method = 'Patch';
+        body = $jsonPacket;
+        authentication = 'Bearer';
+        token = (Get-ZoomAccessToken);
+        maximumretrycount = 3;
+        retryintervalsec = 5;
+    }
+    $response = Invoke-RestMethod @splat -StatusCodeVariable statusCode
+    if($statusCode = 200){
+        Write-Host "Enabled Zoom user $($user.UserName)"
+    } else {
+        Write-Host $response
+        throw "Failed to enable user $($user.UserName). Status code = $statusCode"
     }
 }
