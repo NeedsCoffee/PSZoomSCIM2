@@ -93,9 +93,14 @@ function Compare-ZoomUsersWithAADUsers {
     [CmdletBinding()]
     param([array]$ZoomUsers)
 
+    [X509Certificate]$certificate = Get-ChildItem -Path "Cert:\*$($script:config['AAD_Cert_Thumb'])" -Recurse | Where-Object HasPrivateKey | Sort-Object -Descending NotAfter | Select-Object -First 1
+    if(!$certificate){
+        Throw "Can't initiate Graph connection. Certificate not found."
+    }
+
     [hashtable]$splat = @{
         ClientId = $script:config['AAD_Client_ID']
-        Certificate = (Get-ChildItem "Cert:\LocalMachine\My\$($script:config['AAD_Cert_Thumb'])")
+        Certificate = $certificate
         TenantId = $script:config['AAD_Tenant_ID']
     }
     [hashtable]$workingSet = @{}
