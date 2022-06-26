@@ -118,7 +118,7 @@ function Invoke-ZoomAPI_userSCIM2List {
         $All,
 
         [Parameter(ParameterSetName='userSCIM2ListByIndex')]
-        [ValidatePattern("\d+")]
+        [ValidatePattern('^\d+$')]
         [int]
         $startIndex = 1,
 
@@ -159,7 +159,16 @@ function Invoke-ZoomAPI_userSCIM2List {
         [Parameter(ParameterSetName='userSCIM2ListUser')]
         [Parameter(ParameterSetName='userSCIM2ListId')]
         [securestring]
-        $Token = (Get-ZoomAccessToken)
+        $Token = (Get-ZoomAccessToken),
+
+        [Parameter(ParameterSetName='userSCIM2ListFilter')]
+        [Parameter(ParameterSetName='userSCIM2ListByIndex')]
+        [Parameter(ParameterSetName='userSCIM2ListLicense')]
+        [Parameter(ParameterSetName='userSCIM2ListAll')]
+        [Parameter(ParameterSetName='userSCIM2ListUser')]
+        [Parameter(ParameterSetName='userSCIM2ListId')]
+        [switch]
+        $ReturnRaw
     )
 
     [hashtable]$queryHash = @{
@@ -177,6 +186,7 @@ function Invoke-ZoomAPI_userSCIM2List {
     } elseif ($LicenseType -and -not $All){
         # search by zoom license
         $queryHash.filter = "license type"
+        Throw 'License type query not implemented yet'
     }
 
     [hashtable]$splat = @{
@@ -186,7 +196,7 @@ function Invoke-ZoomAPI_userSCIM2List {
         Headers = @{
             Accept = 'application/scim+json'
         }
-        TimeoutSec = 15
+        TimeoutSec = 30
         ErrorAction = 'Continue'
     }
 
@@ -201,13 +211,16 @@ function Invoke-ZoomAPI_userSCIM2List {
         # decrypt the token
         $decryptedToken = Get-DecryptedString -secureString $Token
         # PowerShell 5.1 IRM doesn't return a status code so use Invoke-WebRequest instead
-        $splat.Headers.Add('Authorization',"Bearer $decryptedToken")
+        $splat.Headers.Add('Authorization','Bearer '+$decryptedToken)
         $splat.Add('UseBasicParsing',$True)
         $splat.Add('ContentType','application/json')
         $response = Invoke-WebRequest @splat | ConvertFrom-Json
     }
-    
-    return $response.Resources
+    if($ReturnRaw){
+        return $response
+    } else {
+        return $response.Resources
+    }
 }
 
 function Get-DecryptedString ([secureString]$secureString){
@@ -283,8 +296,7 @@ function Get-ZoomUsers {
     param ()
     # discover how many users there are
     Write-Verbose 'Function: Get-ZoomUsers'
-    $query = 'https://api.zoom.us/scim2/Users?count={0}&startIndex={1}'
-    $discovery = Invoke-RestMethod -uri ($query -f 1,1) -Method Get -Authentication Bearer -Token (Get-ZoomAccessToken)
+    $discovery = Invoke-ZoomAPI_userSCIM2List -ReturnRaw -count 1
     [int]$total = $discovery.totalResults
     [ZoomUser[]]$data = @()
     [int]$pageSize = 100
@@ -294,19 +306,8 @@ function Get-ZoomUsers {
             $pageSize = ($total-$index)+1
         }
         Write-Host "Collecting users $('{0:00000}' -f $index) - $('{0:00000}' -f ($index+$pageSize-1)) / $('{0:00000}' -f $total)"
-        
-        $splat = @{
-            Uri = ($query -f $pageSize,$index)
-            Method = 'Get'
-            Authentication = 'Bearer'
-            Token = (Get-ZoomAccessToken)
-            MaximumRetryCount = 3
-            RetryIntervalSec = 5
-            WarningAction = 'Continue'
-            ErrorAction = 'Continue'
-        }
-        $response = Invoke-RestMethod @splat
-        $data += Format-ZoomUserData -data $response.Resources
+        $response = Invoke-ZoomAPI_userSCIM2List -startIndex $index -count $pageSize
+        $data += Format-ZoomUserData -data $response
         $index += $pageSize
     } until ($index -ge $total)
     if ($data.count -lt $total){
