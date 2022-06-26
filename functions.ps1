@@ -52,7 +52,6 @@ class ZoomUser {
 }
 #
 function ConvertTo-Base64([string]$text = '') {
-    Write-Verbose 'Function: ConvertTo-Base64'
     return ([System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($text)))
 }
 function Get-ZoomAccessToken {
@@ -75,37 +74,39 @@ function Get-ZoomAccessToken {
         [hashtable]$splat = @{
             Uri = ($uri -f $grant,$account)
             Method = 'Post'
-            Credential = New-Object System.Management.Automation.PSCredential ($client,$secret)
             ErrorAction = 'Stop'
             Headers = @{}
         }
 
         if($PSEdition -eq 'Core'){
-            # add PowerShell Core-only features for Invoke-RestMethod
+            # On Core edition use IRM
             $splat.Add('Authentication','Basic')
+            $splat.Add('Credential',(New-Object System.Management.Automation.PSCredential ($client,$secret)))
             $splat.Add('RetryIntervalSec',5)
             $splat.Add('MaximumRetryCount',3)
             try {
-                [PSCustomObject]$script:cached_zatoken = Invoke-RestMethod @splat
+                [PSCustomObject]$response = Invoke-RestMethod @splat
             } catch {
                 Write-Output 'Failure trying to get an access token'
                 Write-Output $_
             }
         } else {
-            # PowerShell 5.1 IRM needs a slightly different approach
+            # When not on Core edition use IWR as IRM is not complete
             $splat.Add('UseBasicParsing',$True)
             $AuthZtoken = ConvertTo-Base64 -text ($client+':'+$(Get-DecryptedString -secureString $secret))
             $splat.Headers.Add('Authorization',"Basic $AuthZtoken")
             try {
-                [PSCustomObject]$script:cached_zatoken = Invoke-WebRequest @splat | ConvertFrom-Json
+                [PSCustomObject]$response = Invoke-WebRequest @splat | ConvertFrom-Json
+                
             } catch {
                 Write-Output 'Failure trying to get an access token'
                 Write-Output $_
             }
         }
+        $script:cached_zatoken = $response | Select-Object -Property * -ExcludeProperty access_token,expires_in
         if($script:cached_zatoken){
-            $script:cached_zatoken | Add-Member -Value ((Get-Date).AddSeconds($script:cached_zatoken.expires_in)) -MemberType NoteProperty -Name expiry
-            $script:cached_zatoken | Add-Member -Value ($script:cached_zatoken.access_token | ConvertTo-SecureString -AsPlainText -Force) -MemberType NoteProperty -Name access_token_secure
+            $script:cached_zatoken | Add-Member -Value ((Get-Date).AddSeconds($response.expires_in)) -MemberType NoteProperty -Name expiry
+            $script:cached_zatoken | Add-Member -Value ($response.access_token | ConvertTo-SecureString -AsPlainText -Force) -MemberType NoteProperty -Name access_token_secure
         }
         return $script:cached_zatoken.access_token_secure
     }
