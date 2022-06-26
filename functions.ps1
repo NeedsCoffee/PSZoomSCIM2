@@ -119,6 +119,7 @@ function Invoke-ZoomAPI_userSCIM2List {
         $All,
 
         [Parameter(ParameterSetName='userSCIM2ListByIndex')]
+        [Parameter(ParameterSetName='userSCIM2ListFilter')]
         [ValidatePattern('^\d+$')]
         [int]
         $startIndex = 1,
@@ -188,6 +189,9 @@ function Invoke-ZoomAPI_userSCIM2List {
         # search by zoom license
         $queryHash.filter = "license type"
         Throw 'License type query not implemented yet'
+    } elseif ($RawFilter){
+        # search using custom filter
+        Throw 'Custom filter not implemented yet'
     }
 
     [hashtable]$splat = @{
