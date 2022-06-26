@@ -1,5 +1,5 @@
 [CmdletBinding()]param()
-#Requires -PSEdition Core
+#Requires -version 5.1
 
 Write-Verbose 'Initialize Script'
 
@@ -75,25 +75,208 @@ function Get-ZoomAccessToken {
         [hashtable]$splat = @{
             Uri = ($uri -f $grant,$account)
             Method = 'Post'
-            Authentication = 'Basic'
             Credential = New-Object System.Management.Automation.PSCredential ($client,$secret)
+            ErrorAction = 'Stop'
+            Headers = @{}
         }
-        try {
-            [PSCustomObject]$script:cached_zatoken = Invoke-RestMethod @splat -ErrorAction:Stop
+
+        if($PSEdition -eq 'Core'){
+            # add PowerShell Core-only features for Invoke-RestMethod
+            $splat.Add('Authentication','Basic')
+            $splat.Add('RetryIntervalSec',5)
+            $splat.Add('MaximumRetryCount',3)
+            try {
+                [PSCustomObject]$script:cached_zatoken = Invoke-RestMethod @splat
+            } catch {
+                Write-Output 'Failure trying to get an access token'
+                Write-Output $_
+            }
+        } else {
+            # PowerShell 5.1 IRM needs a slightly different approach
+            $splat.Add('UseBasicParsing',$True)
+            $AuthZtoken = ConvertTo-Base64 -text ($client+':'+$(Get-DecryptedString -secureString $secret))
+            $splat.Headers.Add('Authorization',"Basic $AuthZtoken")
+            try {
+                [PSCustomObject]$script:cached_zatoken = Invoke-WebRequest @splat | ConvertFrom-Json
+            } catch {
+                Write-Output 'Failure trying to get an access token'
+                Write-Output $_
+            }
+        }
+        if($script:cached_zatoken){
             $script:cached_zatoken | Add-Member -Value ((Get-Date).AddSeconds($script:cached_zatoken.expires_in)) -MemberType NoteProperty -Name expiry
             $script:cached_zatoken | Add-Member -Value ($script:cached_zatoken.access_token | ConvertTo-SecureString -AsPlainText -Force) -MemberType NoteProperty -Name access_token_secure
-            return $script:cached_zatoken.access_token_secure
-        } catch {
-            Write-Output 'Failure trying to get an access token'
-            Write-Output $_
         }
+        return $script:cached_zatoken.access_token_secure
     }
 }
+function Invoke-ZoomAPI_userSCIM2List {
+    [CmdletBinding(DefaultParameterSetName = 'userSCIM2ListByIndex')]
+    param (
+        [Parameter(ParameterSetName='userSCIM2ListAll')]
+        [switch]
+        $All,
+
+        [Parameter(ParameterSetName='userSCIM2ListByIndex')]
+        [ValidatePattern("\d+")]
+        [int]
+        $startIndex = 1,
+
+        [Parameter(ParameterSetName='userSCIM2ListFilter')]
+        [Parameter(ParameterSetName='userSCIM2ListByIndex')]
+        [Parameter(ParameterSetName='userSCIM2ListLicense')]
+        [ValidateRange(1,100)]
+        [int]
+        $count = 10,
+
+        [Parameter(ParameterSetName='userSCIM2ListFilter')]
+        [Parameter(ParameterSetName='userSCIM2ListAll')]
+        [Alias('Filter','SearchQuery')]
+        [string]
+        $RawFilter,
+
+        [Parameter(ParameterSetName='userSCIM2ListLicense')]
+        [Alias('LisenseType','License','Lisense')]
+        [ValidateSet('Basic','Licensed','On-Prem')]
+        [string]
+        $LicenseType,
+
+        [Parameter(ParameterSetName='userSCIM2ListUser')]
+        [Alias('User','UPN','UserPrincipalName','Email','LoginId')]
+        [ValidatePattern("^\w+([-+.']\w+)*@\w+([-.]\w+)*\.\w+([-.]\w+)*$")]
+        [string]
+        $UserName,
+
+        [Parameter(ParameterSetName='userSCIM2ListId')]
+        [Alias('Id','UserId','ZoomId','uid')]
+        [string]
+        $ExternalId,
+
+        [Parameter(ParameterSetName='userSCIM2ListFilter')]
+        [Parameter(ParameterSetName='userSCIM2ListByIndex')]
+        [Parameter(ParameterSetName='userSCIM2ListLicense')]
+        [Parameter(ParameterSetName='userSCIM2ListAll')]
+        [Parameter(ParameterSetName='userSCIM2ListUser')]
+        [Parameter(ParameterSetName='userSCIM2ListId')]
+        [securestring]
+        $Token = (Get-ZoomAccessToken)
+    )
+
+    [hashtable]$queryHash = @{
+        count = $count
+        startIndex = $startIndex
+        filter = $RawFilter
+    }
+
+    if ($ExternalId){
+        # search by zoom unique id
+        $queryHash.Filter  ='externalId eq {0}' -f $ExternalId
+    } elseif ($UserName){
+        # search by zoom username
+        $queryHash.filter = 'userName eq {0}' -f $UserName
+    } elseif ($LicenseType -and -not $All){
+        # search by zoom license
+        $queryHash.filter = "license type"
+    }
+
+    [hashtable]$splat = @{
+        Uri = 'https://api.zoom.us/scim2/users'
+        Method = 'Get'
+        Body = $queryHash
+        Headers = @{
+            Accept = 'application/scim+json'
+        }
+        TimeoutSec = 15
+        ErrorAction = 'Continue'
+    }
+
+    if($PSEdition -eq 'Core'){
+        # add PowerShell Core-only features for Invoke-RestMethod
+        $splat.Add('Authentication','Bearer')
+        $splat.Add('Token',$Token)
+        $splat.Add('RetryIntervalSec',5)
+        $splat.Add('MaximumRetryCount',3)
+        $response = Invoke-RestMethod @splat
+    } else {
+        # decrypt the token
+        $decryptedToken = Get-DecryptedString -secureString $Token
+        # PowerShell 5.1 IRM doesn't return a status code so use Invoke-WebRequest instead
+        $splat.Headers.Add('Authorization',"Bearer $decryptedToken")
+        $splat.Add('UseBasicParsing',$True)
+        $splat.Add('ContentType','application/json')
+        $response = Invoke-WebRequest @splat | ConvertFrom-Json
+    }
+    
+    return $response.Resources
+}
+
+function Get-DecryptedString ([secureString]$secureString){
+    $ptrString = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securestring)
+    [string]$decryptedString = [Runtime.InteropServices.Marshal]::PtrToStringAuto($ptrString)
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptrString)
+    return $decryptedString
+}
+
 function Invoke-ZoomSCIM2APICall {
     [CmdletBinding()]
-    param ([string]$query,[string]$method = 'Get',[string]$body)
-    [uri]$uri = 'https://api.zoom.us/scim2/{0}' -f $query
-    Invoke-RestMethod -Uri $uri -Method Get -Authentication Bearer -Token (Get-ZoomAccessToken)
+    param (
+        [Parameter(ParameterSetName='userSCIM2List','userSCIM2ListAll','userSCIM2Create','userSCIM2Get','userSCIM2Update','userSCIM2Delete','userADSCIM2Deactivate')]
+        [ValidateSet('userSCIM2List','userSCIM2Create','userSCIM2Get','userSCIM2Update','userSCIM2Delete','userADSCIM2Deactivate')]
+        [Alias('Method')]
+        [string]
+        $ApiMethod = 'userSCIM2List',
+
+        [Parameter(ParameterSetName='userSCIM2ListAll')]
+        [switch]
+        $All,
+
+        [Parameter(ParameterSetName='userSCIM2List')]
+        [int]
+        $startIndex = 1,
+
+        [Parameter(ParameterSetName='userSCIM2List')]
+        [int]
+        $count = 100,
+
+        [Parameter(ParameterSetName='userSCIM2List','userSCIM2ListAll')]
+        [string]
+        $filter,
+
+        [Parameter(ParameterSetName='userSCIM2List','userSCIM2ListAll','userSCIM2Create','userSCIM2Get','userSCIM2Update','userSCIM2Delete','userADSCIM2Deactivate')]
+        [string]
+        $token = (Get-ZoomAccessToken)
+    )]
+    [string]$protocol = 'https'
+    [string]$apihost = 'api.zoom.us'
+    [string]$api = 'scim2'
+    [uri]$RestUri = '{0}://{1}/{2}/{3}' -f ($protocol,$apihost,$api,$ApiMethod)
+    [hashtable]$RestHeaders = @{Accept = 'application/scim+json'}
+    switch ($ApiMethod) {
+        userSCIM2List         {[string]$RestMethod = 'Get'}
+        userSCIM2Get          {[string]$RestMethod = 'Get'}
+        userSCIM2Create       {[string]$RestMethod = 'Post'}
+        userSCIM2Update       {[string]$RestMethod = 'Put'}
+        userSCIM2Delete       {[string]$RestMethod = 'Delete'}
+        userADSCIM2Deactivate {[string]$RestMethod = 'Patch'}
+    }
+    [hashtable]$splat = {
+        Uri = $RestUri
+        Method = $RestMethod
+        Authentication = 'Bearer'
+        Token = $token
+        Headers = $RestHeaders
+        StatusCodeVariable = statusCode
+        TimeoutSec = 60
+        RetryIntervalSec = 5
+        MaximumRetryCount = 3
+        ErrorAction = 'Continue'
+    }
+    try {
+        $response = Invoke-RestMethod @splat
+    } catch {
+
+    }
+    
 }
 function Get-ZoomUsers {
     [CmdletBinding()]
