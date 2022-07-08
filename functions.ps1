@@ -37,14 +37,21 @@ class ZoomUser {
         [boolean]$loginWorkEmail
         [boolean]$loginSSO
          [string]$department
+            [int]$isEnabledInAD # 0 = disabled, 1 = enabled, -1 = not found
     [void]Activate(){
-        Update-ZoomUserState -UserId $this.id -Enable
+        $ret = Update-ZoomUserState -UserId $this.id -Enable
+        if($ret -eq 1){$this.active = $true}
     }
     [void]Deactivate(){
-        Update-ZoomUserState -UserId $this.id -Disable
+        $ret = Update-ZoomUserState -UserId $this.id -Disable
+        if($ret -eq -1){$this.active = $false}
     }
     [void]FlipState(){
-        Update-ZoomUserState -UserId $this.id
+        $ret = Update-ZoomUserState -UserId $this.id
+        Switch ($ret) {
+            1  {$this.active = $true}
+            -1 {$this.active = $false}
+        }
     }
     [string]ToString(){
         return $this.id
@@ -345,6 +352,42 @@ function Format-ZoomUserData {
     [ZoomUser[]]$parsedData = $data | Select-Object @splat
     return $parsedData
 }
+function Get-ZoomUserFromAAD {
+    [CmdletBinding()]
+    param([ZoomUser]$zoomUser)
+    Invoke-GraphConnection
+    [string]$query = "UserPrincipalName eq '{0}' or ProxyAddresses/any(c:c eq 'smtp:{1}')" -f ($zoomUser.UserName,$zoomUser.emailAddress)
+    Write-Verbose "Calling Get-MgUser with query `"$query`""
+    [array]$aadUser = Get-MgUser -Filter $query -Property AccountEnabled,ProxyAddresses,UserPrincipalName,Mail
+    Write-Verbose "$($aadUser.count) AAD objects found: $($aadUser.Id -join(','))"
+    return $aadUser
+}
+
+function Invoke-GraphConnection {
+    [CmdletBinding()]
+    param()
+
+    if(!(Get-Module 'Microsoft.Graph.Authentication')){
+        Import-Module -FullyQualifiedName .\modules\Microsoft.Graph.Authentication
+    }
+    if(!(Get-MgProfile)){
+        Write-Verbose "No existing connection to Microsoft Graph. Will try to connect."
+        Write-Verbose "Trying to get authentiction certificate"
+        [System.Security.Cryptography.X509Certificates.X509Certificate2]$certificate = Get-ChildItem -Path "Certificate::*\My\$($script:config['AAD_Cert_Thumb'])" | Where-Object HasPrivateKey | Sort-Object -Descending NotAfter | Select-Object -First 1
+        if(!$certificate){
+            Throw "Can't initiate Graph connection. Certificate not found."
+        }
+        [hashtable]$splat = @{
+            ClientId = $script:config['AAD_Client_ID']
+            Certificate = $certificate
+            TenantId = $script:config['AAD_Tenant_ID']
+        }
+        Write-Verbose "Connecting to Microsoft Graph"
+        Connect-MgGraph @splat | Out-Null
+    } else {
+        # connection already active
+    }
+}
 function Compare-ZoomUsersWithAADUsers {
     [CmdletBinding()]
     param([array]$ZoomUsers)
@@ -433,11 +476,17 @@ function Update-ZoomUserState {
         maximumretrycount = 3;
         retryintervalsec = 5;
     }
-    $response = Invoke-RestMethod @splat -StatusCodeVariable statusCode
+    if($script:simulation){
+        $statusCode = 200
+    } else {
+        $response = Invoke-RestMethod @splat -StatusCodeVariable statusCode
+    }
     if($statusCode = 200 -and !$targetState){
-        Write-Host "Disabled Zoom user $UserId"
+        Write-Verbose "Disabled Zoom user $UserId"
+        return -1
     } elseif ($statusCode = 200 -and $targetState){
-        Write-Host "Enabled Zoom user $UserId"
+        Write-Verbose "Enabled Zoom user $UserId"
+        return 1
     } else {
         Write-Host $response
         throw "Failed to alter state of user $UserId. Status code: $statusCode"
