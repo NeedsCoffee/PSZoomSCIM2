@@ -9,7 +9,7 @@ $script:simulationMode = $true
 # if AAD equivalent is disabled - deactivate user
 # if AAD equivalent is enabled and Zoom user is disabled - activate user
 
-[ZoomUser[]]$allZoomUsers = Get-ZoomUsers
+[array]$allZoomUsers = Get-ZoomUsers
 [int]$a = 0; [int]$z = $allZoomUsers.count
 foreach($zoomUser in $allZoomUsers){
     $a++
@@ -17,8 +17,8 @@ foreach($zoomUser in $allZoomUsers){
     [array]$AADsearcher = @()
     try {
         $AADsearcher += Get-ZoomUserFromAAD -zoomUser $zoomUser
-        Switch ($AADsearcher){
-            {$_.count -eq 0} {
+        Switch ($AADsearcher.count){
+            0 {
                 $zoomUser.isEnabledInAD = -1
                 # handle no AAD account found for Zoom user
                 if($zoomUser.active){
@@ -39,7 +39,7 @@ foreach($zoomUser in $allZoomUsers){
                 }
                 break;
             }
-            {$_.count -eq 1} {
+            1 {
                 if($AADsearcher.AccountEnabled -and -not $zoomUser.active){
                     $zoomUser.isEnabledInAD = 1
                     # handle AAD account enabled, but Zoom account inactive: action = Activate in Zoom
