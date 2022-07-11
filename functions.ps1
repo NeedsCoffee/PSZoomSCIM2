@@ -25,19 +25,19 @@ foreach($folder in (Get-ChildItem '.\modules\' -Directory)){
 }
 
 class ZoomUser {
-         [string]$id
-            [uri]$uri
-         [string]$givenName
-         [string]$familyName
+    [string]$id
+    [uri]$uri
+    [string]$givenName
+    [string]$familyName
     [mailaddress]$emailAddress
-         [string]$displayName
-         [string]$userName
-        [boolean]$active
-         [string]$userType
-        [boolean]$loginWorkEmail
-        [boolean]$loginSSO
-         [string]$department
-            [int]$isEnabledInAD # 0 = disabled, 1 = enabled, -1 = not found
+    [string]$displayName
+    [string]$userName
+    [boolean]$active
+    [string]$userType
+    [boolean]$loginWorkEmail
+    [boolean]$loginSSO
+    [string]$department
+    $isEnabledInAD
     [void]Activate(){
         $ret = Update-ZoomUserState -UserId $this.id -Enable
         if($ret -eq 1){$this.active = $true}
@@ -317,7 +317,7 @@ function Get-ZoomUsers {
         if(($index+$pageSize) -gt $total){
             $pageSize = ($total-$index)+1
         }
-        Write-Host "Collecting users $('{0:00000}' -f $index) - $('{0:00000}' -f ($index+$pageSize-1)) / $('{0:00000}' -f $total)"
+        Write-Progress -Activity 'Collecting Zoom users' -PercentComplete ((($index+$pageSize-1)/$total)*100) -Status "$index : $($index+$pageSize-1)"
         $response = Invoke-ZoomAPI_userSCIM2List -startIndex $index -count $pageSize
         $data += Format-ZoomUserData -data $response
         $index += $pageSize
@@ -354,13 +354,14 @@ function Format-ZoomUserData {
 }
 function Get-ZoomUserFromAAD {
     [CmdletBinding()]
-    param([ZoomUser]$zoomUser)
+    param($zoomUser)
+    [string[]]$properties = @('Id','AccountEnabled','ProxyAddresses','UserPrincipalName','Mail')
     Invoke-GraphConnection
     [string]$query = "UserPrincipalName eq '{0}' or ProxyAddresses/any(c:c eq 'smtp:{1}')" -f ($zoomUser.UserName,$zoomUser.emailAddress)
     Write-Verbose "Calling Get-MgUser with query `"$query`""
-    [array]$aadUser = Get-MgUser -Filter $query -Property AccountEnabled,ProxyAddresses,UserPrincipalName,Mail
+    [array]$aadUser = Get-MgUser -Filter $query -Property $properties
     Write-Verbose "$($aadUser.count) AAD objects found: $($aadUser.Id -join(','))"
-    return $aadUser
+    return ($aadUser | Select-Object -Property $properties)
 }
 
 function Invoke-GraphConnection {
@@ -370,7 +371,7 @@ function Invoke-GraphConnection {
     if(!(Get-Module 'Microsoft.Graph.Authentication')){
         Import-Module -FullyQualifiedName .\modules\Microsoft.Graph.Authentication
     }
-    if(!(Get-MgProfile)){
+    if(!(Get-MgContext)){
         Write-Verbose "No existing connection to Microsoft Graph. Will try to connect."
         Write-Verbose "Trying to get authentiction certificate"
         [System.Security.Cryptography.X509Certificates.X509Certificate2]$certificate = Get-ChildItem -Path "Certificate::*\My\$($script:config['AAD_Cert_Thumb'])" | Where-Object HasPrivateKey | Sort-Object -Descending NotAfter | Select-Object -First 1
@@ -476,7 +477,7 @@ function Update-ZoomUserState {
         maximumretrycount = 3;
         retryintervalsec = 5;
     }
-    if($script:simulation){
+    if($script:simulationMode){
         $statusCode = 200
     } else {
         $response = Invoke-RestMethod @splat -StatusCodeVariable statusCode
