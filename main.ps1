@@ -5,12 +5,11 @@ Write-Verbose 'Start of script'
 
 . .\functions.ps1
 
-$InformationPreference = $config['InformationPreference']
-$script:simulationMode = $config['SimulationMode']
+[boolean]$simulationMode = [System.Convert]::ToBoolean($config["SimulationMode"])
 if($simulationMode){
     Write-Log -Message 'Script running in simulation mode. No user states will change' -Level INFO
 } else {
-    Write-Log -Message 'Script has started' -Level ACTION
+    Write-Log -Message 'Script started' -Level ACTION
 }
 
 [array]$allZoomUsers = Get-ZoomUsers

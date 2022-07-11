@@ -27,9 +27,9 @@ foreach($folder in (Get-ChildItem '.\modules\' -Directory)){
 Set-LoggingDefaultLevel -Level 'INFO'
 Add-LoggingTarget -Name Console -Configuration @{Level = 'INFO'}
 Add-LoggingLevel -LevelName 'ACTION' -Level 25
-Add-LoggingTarget -Name File -Configuration @{Level = 'ACTION'; Append = $true; Encoding = 'UTF8'; Path = '.\logging\ZoomUser-Status-Sync_%{+%Y%m}.log'}
+Add-LoggingTarget -Name File -Configuration @{Level = 'ACTION'; Append = $true; Encoding = 'UTF8'; Path = '.\logs\ZoomUser-Status-Sync_%{+%Y%m}.log'}
 if($config['TeamsWebHook'].Length -gt 0){
-    Add-LoggingTarget -Name Teams -Configuration @{WebHook = $config['TeamsWebHook']; Details = $true; Level = 'ACTION'}
+    Add-LoggingTarget -Name Teams -Configuration @{WebHook = $config['TeamsWebHook']; Details = $false; Level = 'ACTION'}
 }
 
 class ZoomUser {
