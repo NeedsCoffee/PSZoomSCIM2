@@ -1,5 +1,5 @@
 [CmdletBinding()]param()
-#Requires -version 5.1
+#Requires -PSEdition Core
 
 Write-Verbose 'Initialize Script'
 
@@ -10,7 +10,7 @@ if(Test-Path '.\config.txt'){
         Write-Verbose "$key = $($script:config[$key])"
     }
     if($config.Keys -contains 'Client_Secret'){
-        $script:config.Add("Client_Secret_Secure",($config['Client_Secret'] | ConvertTo-SecureString -Force -AsPlainText))
+        $script:config.Add('Client_Secret_Secure',($config['Client_Secret'] | ConvertTo-SecureString -Force -AsPlainText))
     }
 } else {
     throw 'config.txt not found. Unable to continue'
@@ -22,6 +22,14 @@ foreach($folder in (Get-ChildItem '.\modules\' -Directory)){
     } else {
         Write-Verbose "Module $($folder.BaseName) already loaded"
     }
+}
+
+Set-LoggingDefaultLevel -Level 'INFO'
+Add-LoggingTarget -Name Console -Configuration @{Level = 'INFO'}
+Add-LoggingLevel -LevelName 'ACTION' -Level 25
+Add-LoggingTarget -Name File -Configuration @{Level = 'ACTION'; Append = $true; Encoding = 'UTF8'; Path = '.\logging\ZoomUser-Status-Sync_%{+%Y%m}.log'}
+if($config['TeamsWebHook'].Length -gt 0){
+    Add-LoggingTarget -Name Teams -Configuration @{WebHook = $config['TeamsWebHook']; Details = $true; Level = 'ACTION'}
 }
 
 class ZoomUser {
@@ -103,8 +111,9 @@ function Get-ZoomAccessToken {
             $AuthZtoken = ConvertTo-Base64 -text ($client+':'+$(Get-DecryptedString -secureString $secret))
             $splat.Headers.Add('Authorization',"Basic $AuthZtoken")
             try {
+                $oldProgressPreference = $progressPreference; $progressPreference = 'SilentlyContinue';
                 [PSCustomObject]$response = Invoke-WebRequest @splat | ConvertFrom-Json
-                
+                $progressPreference = $oldProgressPreference;
             } catch {
                 Write-Output 'Failure trying to get an access token'
                 Write-Output $_
@@ -226,7 +235,9 @@ function Invoke-ZoomAPI_userSCIM2List {
         $splat.Headers.Add('Authorization','Bearer '+$decryptedToken)
         $splat.Add('UseBasicParsing',$True)
         $splat.Add('ContentType','application/json')
+        $oldProgressPreference = $progressPreference; $progressPreference = 'SilentlyContinue';
         $response = Invoke-WebRequest @splat | ConvertFrom-Json
+        $progressPreference = $oldProgressPreference;
     }
     if($ReturnRaw){
         return $response
