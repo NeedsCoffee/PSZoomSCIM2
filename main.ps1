@@ -41,7 +41,7 @@ foreach($zoomUser in $allZoomUsers){
                     $deactivated++
                     if(!($zoomUser.Active)){
                         Write-Log -Message 'Orphaned Zoom user {0} deactivated' -Arguments $zoomUser.userName -Level ACTION
-                        $zoomUser | Export-Csv -Path .\logs\zoomusers_deactivated.csv -NoTypeInformation
+                        $zoomUser | Export-Csv -Path .\logs\zoomusers_deactivated.csv -NoTypeInformation -Append
                     } elseif($script:simulationMode){
                         Write-Log -Message 'SIMULATION: Orphaned Zoom user {0} deactivated' -Arguments $zoomUser.userName -Level INFO
                     } else {
@@ -63,7 +63,7 @@ foreach($zoomUser in $allZoomUsers){
                     $reactivated++
                     if($zoomUser.Active){
                         Write-Log -Message 'Zoom user {0} reactivated' -Arguments $zoomUser.userName -Level ACTION
-                        $zoomUser | Export-Csv -Path .\logs\zoomusers_reactivated.csv -NoTypeInformation -Encoding utf8
+                        $zoomUser | Export-Csv -Path .\logs\zoomusers_reactivated.csv -NoTypeInformation -Encoding utf8 -Append
                     } elseif($script:simulationMode){
                         Write-Log -Message 'SIMULATION: Zoom user {0} reactivated' -Arguments $zoomUser.userName -Level INFO
                     } else {

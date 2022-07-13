@@ -30,10 +30,12 @@ Add-LoggingLevel -LevelName 'ACTION' -Level 25
 Add-LoggingLevel -LevelName 'START' -Level 28
 Add-LoggingLevel -LevelName 'STOP' -Level 29
 Add-LoggingTarget -Name File -Configuration @{Level = 'ACTION'; Append = $true; Encoding = 'UTF8'; Path = '.\logs\ZoomUser-Status-Sync_%{+%Y%m}.log'}
-if($config['TeamsWebHook'].Length -gt 0){
-    Add-LoggingTarget -Name Teams -Configuration @{WebHook = $config['TeamsWebHook']; Details = $false; Level = 'START'}
+if($config['TeamsWebHook1'].Length -gt 0){
+    Add-LoggingTarget -Name Teams -Configuration @{WebHook = $config['TeamsWebHook1']; Details = $false; Level = 'START'}
 }
-
+if($config['TeamsWebHook2'].Length -gt 0){
+    Add-LoggingTarget -Name Teams -Configuration @{WebHook = $config['TeamsWebHook2']; Details = $false; Level = 'START'}
+}
 
 class ZoomUser {
     [string]$id
