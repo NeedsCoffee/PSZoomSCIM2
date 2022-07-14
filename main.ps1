@@ -16,7 +16,7 @@ if(!($allZoomUsers.count)){
     [array]$allZoomUsers = Get-ZoomUsers
 }
 [int]$a = 0; [int]$z = $allZoomUsers.count
-[int]$deactivated = 0; [int]$reactivated = 0; [int]$errorCount = 0; [int]$tolerance = [System.Convert]::ToInt16($config['ErrorTolerance'])
+[array]$deactivated = @(); [array]$reactivated = @(); [int]$errorCount = 0; [int]$tolerance = [System.Convert]::ToInt16($config['ErrorTolerance'])
 Write-Log -Message '{0} users retrieved from Zoom API' -Arguments $z -Level INFO
 foreach($zoomUser in $allZoomUsers){
     $a++
@@ -38,7 +38,7 @@ foreach($zoomUser in $allZoomUsers){
                     Write-Progress -Id 1 -ParentId 0 "Deactivating: $($zoomUser.userName)"
                     Write-Log -Message 'Active ZoomUser {0} with email {1} has no active equivalent in AAD. Deactivating in Zoom.' -Arguments @($zoomUser.userName,$zoomUser.emailAddress) -Level INFO
                     $zoomUser.Deactivate() | Out-Null
-                    $deactivated++
+                    $deactivated += $zoomUser.userName
                     if(!($zoomUser.Active)){
                         Write-Log -Message 'Orphaned Zoom user {0} deactivated' -Arguments $zoomUser.userName -Level ACTION
                         $zoomUser | Export-Csv -Path .\logs\zoomusers_deactivated.csv -NoTypeInformation -Encoding utf8 -Append
@@ -60,7 +60,7 @@ foreach($zoomUser in $allZoomUsers){
                     Write-Progress -Id 1 -ParentId 0 "Reactivating: $($zoomUser.userName)"
                     Write-Log -Message 'Inactive ZoomUser {0} has an active equivalent in AAD. Reactivating in Zoom.' -Arguments $zoomUser.userName -Level INFO
                     $zoomUser.Activate() | Out-Null
-                    $reactivated++
+                    $reactivated += $zoomUser.userName
                     if($zoomUser.Active){
                         Write-Log -Message 'Zoom user {0} reactivated' -Arguments $zoomUser.userName -Level ACTION
                         $zoomUser | Export-Csv -Path .\logs\zoomusers_reactivated.csv -NoTypeInformation -Encoding utf8 -Append
@@ -76,7 +76,7 @@ foreach($zoomUser in $allZoomUsers){
                     Write-Progress -Id 1 -ParentId 0 "Deactivating: $($zoomUser.userName)"
                     Write-Log -Message 'Active ZoomUser {0} has an inactive equivalent in AAD. Deactivating in Zoom.' -Arguments $zoomUser.userName -Level INFO
                     $zoomUser.Deactivate() | Out-Null
-                    $deactivated++
+                    $deactivated += $zoomUser.userName
                     if(!($zoomUser.Active)){
                         Write-Log -Message 'Zoom user {0} deactivated' -Arguments $zoomUser.userName -Level ACTION
                         $zoomUser | Export-Csv -Path .\logs\zoomusers_deactivated.csv -NoTypeInformation -Encoding utf8 -Append
@@ -93,11 +93,11 @@ foreach($zoomUser in $allZoomUsers){
                 break;
             }
             Default {
-                Write-Log -Message 'Multiple AAD users matched found for user {0} with email {1}' -Arguments @($zoomUser.userName,$zoomUser.emailAddress) -Level WARNING
+                Write-Log -Message 'Multiple AAD users matches found for user {0} with email {1}' -Arguments @($zoomUser.userName,$zoomUser.emailAddress) -Level WARNING
             }
         }
     } catch {
-        Write-Log -Message 'Error whilst trying to search for {0} in AAD. Error Message: ' -Arguments @($zoomUser.userName,$_) -Level ERROR
+        Write-Log -Message 'Error whilst trying to search for {0} in AAD. Error Message: {1}' -Arguments @($zoomUser.userName,$_) -Level ERROR
         $errorCount++
     }
 }
@@ -105,7 +105,15 @@ foreach($zoomUser in $allZoomUsers){
 if($simulationMode){
     Write-Log -Message 'Script ended' -Level INFO
 } else {
-    Write-Log -Message 'Script ended: {0} users deactivated, {1} users reactivated, {2} users in tenant, {3} errors' -Arguments @($deactivated,$reactivated,$z,$errorCount) -Level STOP
+    [string]$body = '';
+    if($deactivated.count){
+        $body = "<strong>Users Deactivated:</strong><br /><code>$($deactivated -join('<br />'))</code>"
+    }
+    if($reactivated.count){
+        if($body.Length -gt 0){$body = $body + '<br /><br />'}
+        $body = $body+"<strong>Users Reactivated:</strong><br /><code>$($reactivated -join('<br />'))</code>"
+    }
+    Write-Log -Message 'Script ended: {0} users deactivated, {1} users reactivated, {2} users in tenant, {3} errors' -Arguments @($deactivated.count,$reactivated.count,$z,$errorCount) -Level STOP -Body $body
 }
 
 Wait-Logging
