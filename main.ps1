@@ -17,11 +17,17 @@ if(!($allZoomUsers.count)){
 }
 [int]$a = 0; [int]$z = $allZoomUsers.count
 [array]$deactivated = @(); [array]$reactivated = @(); [int]$errorCount = 0; [int]$tolerance = [System.Convert]::ToInt16($config['ErrorTolerance'])
+[int]$deactivationTolerance = [System.Convert]::ToInt16($config['DeactivationTolerance'])
+
 Write-Log -Message '{0} users retrieved from Zoom API' -Arguments $z -Level INFO
 foreach($zoomUser in $allZoomUsers){
     $a++
     if($errorCount -ge $tolerance){
         Write-Log -Message '{0} errors trapped. Tolerance is {1}. Quiting script.' -Arguments @($errorCount,$tolerance) -Level WARNING
+        break;
+    }
+    if($deactivated.count -ge $deactivationTolerance){
+        Write-Log -Message '{0} deactivations. Tolerance is {1}. Quiting script.' -Arguments @($deactivated.count,$deactivationTolerance) -Level WARNING
         break;
     }
     
