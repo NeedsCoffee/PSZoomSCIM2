@@ -105,14 +105,22 @@ foreach($zoomUser in $allZoomUsers){
 if($simulationMode){
     Write-Log -Message 'Script ended' -Level INFO
 } else {
-    [string]$body = '';
+    [string]$text = '';
     if($deactivated.count){
-        $body = "<strong>Users Deactivated:</strong><br /><code>$($deactivated -join('<br />'))</code>"
+        $text = "Deactivated:<br /><code>$($deactivated -join('<br />'))</code>"
     }
     if($reactivated.count){
-        if($body.Length -gt 0){$body = $body + '<br /><br />'}
-        $body = $body+"<strong>Users Reactivated:</strong><br /><code>$($reactivated -join('<br />'))</code>"
+        if($text.Length -gt 0){$text = $text + '<br /><br />'}
+        $text = $text+"Reactivated:<br /><code>$($reactivated -join('<br />'))</code>"
     }
+    if($text.Length -gt 0){
+        [hashtable]$body = @{
+            Activity = @{
+                title = 'Users Affected'
+                text = $text
+            }
+        }
+    } else {[string]$body = ''}
     Write-Log -Message 'Script ended: {0} users deactivated, {1} users reactivated, {2} users in tenant, {3} errors' -Arguments @($deactivated.count,$reactivated.count,$z,$errorCount) -Level STOP -Body $body
 }
 
