@@ -29,7 +29,7 @@ Add-LoggingTarget -Name Console -Configuration @{Level = 'INFO'}
 Add-LoggingLevel -LevelName 'ACTION' -Level 25
 Add-LoggingLevel -LevelName 'START' -Level 28
 Add-LoggingLevel -LevelName 'STOP' -Level 29
-Add-LoggingTarget -Name File -Configuration @{Level = 'ACTION'; Append = $true; Encoding = 'UTF8'; Path = '.\logs\ZoomUser-Status-Sync_%{+%Y%m}.log'}
+Add-LoggingTarget -Name File -Configuration @{Level = 'ACTION'; Append = $true; Encoding = 'UTF8'; Path = 'E:\Scripting\_logs\ZoomUser-Status-Sync_%{+%Y%m}.log'; RotateAfterAmount = 6}
 if($config['TeamsWebHook1'].Length -gt 0){
     Add-LoggingTarget -Name Teams1 -Configuration @{WebHook = $config['TeamsWebHook1']; Details = $false; Level = 'START'}
 }
