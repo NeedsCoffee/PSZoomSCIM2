@@ -492,6 +492,7 @@ function Update-ZoomUserState {
         token = (Get-ZoomAccessToken);
         maximumretrycount = 3;
         retryintervalsec = 5;
+        contenttype = 'application/json';
     }
     if($script:simulationMode){
         $statusCode = 200
@@ -526,6 +527,7 @@ function Enable-ZoomUser {
         token = (Get-ZoomAccessToken);
         maximumretrycount = 3;
         retryintervalsec = 5;
+        contenttype = 'application/json';
     }
     $response = Invoke-RestMethod @splat -StatusCodeVariable statusCode
     if($statusCode = 200){
